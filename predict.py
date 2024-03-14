@@ -16,12 +16,13 @@ class Predictor(BasePredictor):
         self.device = "cuda"
         self.model = whisperx.load_model("large-v2", self.device, language="en", compute_type=compute_type)
         self.alignment_model, self.metadata = whisperx.load_align_model(language_code="en", device=self.device)
-
+        self.diarize_model = whisperx.DiarizationPipeline(use_auth_token="YOUR_HF_TOKEN_HERE", device=self.device)
     def predict(
         self,
         audio: Path = Input(description="Audio file"),
         batch_size: int = Input(description="Parallelization of input audio transcription", default=32),
         align_output: bool = Input(description="Use if you need word-level timing and not just batched transcription", default=False),
+        diarization: bool = Input(description="Assign speaker ID labels", default=False),
         only_text: bool = Input(description="Set if you only want to return text; otherwise, segment metadata will be returned as well.", default=False),
         debug: bool = Input(description="Print out memory usage information.", default=False)
     ) -> str:
@@ -38,9 +39,13 @@ class Predictor(BasePredictor):
                 #   it is also sorted
                 # aligned_result['segments'] - same as result segments, but w/a ['words'] segment which contains timing information above. 
                 # return_char_alignments adds in character level alignments. it is: too many. 
+            if diarization:
+                diarize_segments = self.diarize_model(str(audio))
+                result = whisperx.assign_word_speakers(diarize_segments, result)
             if only_text:
                 return ''.join([val.text for val in result['segments']])
             if debug:
                 print(f"max gpu memory allocated over runtime: {torch.cuda.max_memory_reserved() / (1024 ** 3):.2f} GB")
         return json.dumps(result['segments'])
+
 
